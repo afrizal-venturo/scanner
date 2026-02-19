@@ -124,6 +124,9 @@ class WebScanner:
                 print(f"\nTotal found: {len(found_paths)}")
             else:
                 print("\nNo sensitive files found.")
+        except asyncio.CancelledError:
+            print("Scan cancelled.")
+            raise
         except Exception as e:
             print(f"Error during scan: {e}")
 
@@ -159,6 +162,8 @@ def main():
 
         scanner = WebScanner(args.url, args.wordlist, args.webhook, args.max_retry, args.thread)
         asyncio.run(scanner.scan())
+    except KeyboardInterrupt:
+        print("Scan interrupted by user.")
     except Exception as e:
         print(f"Error in main: {e}")
 
