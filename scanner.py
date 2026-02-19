@@ -23,14 +23,20 @@ class WebScanner:
         self.load_wordlist()
 
     def load_wordlist(self):
-        if not os.path.exists(self.wordlist_path):
-            print(f"Wordlist file '{self.wordlist_path}' not found. Using default wordlist.")
+        try:
+            if not os.path.exists(self.wordlist_path):
+                print(f"Wordlist file '{self.wordlist_path}' not found. Using default wordlist.")
+                self.wordlist = [
+                    'admin', 'login', 'config', 'backup', 'test', 'phpinfo.php', '.env', '.git', 'wp-admin', 'wp-login.php'
+                ]
+            else:
+                with open(self.wordlist_path, 'r') as f:
+                    self.wordlist = [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            print(f"Error loading wordlist: {e}. Using default wordlist.")
             self.wordlist = [
                 'admin', 'login', 'config', 'backup', 'test', 'phpinfo.php', '.env', '.git', 'wp-admin', 'wp-login.php'
             ]
-        else:
-            with open(self.wordlist_path, 'r') as f:
-                self.wordlist = [line.strip() for line in f if line.strip()]
 
     async def get_page_content(self, path=''):
         full_url = urljoin(self.url, path)
@@ -81,36 +87,45 @@ class WebScanner:
         return len(intersection) / len(union) if union else 0
 
     async def check_path(self, path, found_paths):
-        full_url = urljoin(self.url, path)
-        status, content = await self.get_page_content(path)
-        if status and 200 <= status < 300:
-            if not self.is_similar_to_index_or_404(content):
-                print(f"Found: {full_url} (Status: {status})")
-                found_paths.append(full_url)
-                if self.webhook_url:
-                    await self.send_discord_webhook(full_url, status)
-            else:
-                print(f"Skipped (similar to index/404): {full_url}")
-        elif status:
-            print(f"Not found: {full_url} (Status: {status})")
+        try:
+            full_url = urljoin(self.url, path)
+            status, content = await self.get_page_content(path)
+            if status and 200 <= status < 300:
+                if not self.is_similar_to_index_or_404(content):
+                    print(f"Found: {full_url} (Status: {status})")
+                    found_paths.append(full_url)
+                    if self.webhook_url:
+                        await self.send_discord_webhook(full_url, status)
+                else:
+                    print(f"Skipped (similar to index/404): {full_url}")
+            elif status:
+                print(f"Not found: {full_url} (Status: {status})")
+        except Exception as e:
+            print(f"Error checking path {path}: {e}")
 
     async def scan(self):
-        if not await self.detect_index_and_404():
-            return
+        try:
+            if not await self.detect_index_and_404():
+                return
 
-        found_paths = []
-        semaphore = asyncio.Semaphore(self.threads)
-        async def limited_check(path):
-            async with semaphore:
-                await self.check_path(path, found_paths)
+            found_paths = []
+            semaphore = asyncio.Semaphore(self.threads)
+            async def limited_check(path):
+                async with semaphore:
+                    try:
+                        await self.check_path(path, found_paths)
+                    except Exception as e:
+                        print(f"Error in limited_check for {path}: {e}")
 
-        tasks = [limited_check(path) for path in self.wordlist]
-        await asyncio.gather(*tasks)
+            tasks = [limited_check(path) for path in self.wordlist]
+            await asyncio.gather(*tasks)
 
-        if found_paths:
-            print(f"\nTotal found: {len(found_paths)}")
-        else:
-            print("\nNo sensitive files found.")
+            if found_paths:
+                print(f"\nTotal found: {len(found_paths)}")
+            else:
+                print("\nNo sensitive files found.")
+        except Exception as e:
+            print(f"Error during scan: {e}")
 
     async def send_discord_webhook(self, url, status):
         if not self.webhook_url:
@@ -132,17 +147,20 @@ class WebScanner:
             print(f"Error sending webhook: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Web Directory/File Scanner")
-    parser.add_argument('--url', required=True, help='Target URL to scan')
-    parser.add_argument('--wordlist', default='wl.txt', help='Path to wordlist file (default: wl.txt)')
-    parser.add_argument('--webhook', help='Discord webhook URL for notifications')
-    parser.add_argument('--max-retry', type=int, default=3, help='Maximum number of retries on error (default: 3)')
-    parser.add_argument('--thread', type=int, default=5, help='Number of concurrent threads (default: 5)')
+    try:
+        parser = argparse.ArgumentParser(description="Web Directory/File Scanner")
+        parser.add_argument('--url', required=True, help='Target URL to scan')
+        parser.add_argument('--wordlist', default='wl.txt', help='Path to wordlist file (default: wl.txt)')
+        parser.add_argument('--webhook', help='Discord webhook URL for notifications')
+        parser.add_argument('--max-retry', type=int, default=3, help='Maximum number of retries on error (default: 3)')
+        parser.add_argument('--thread', type=int, default=5, help='Number of concurrent threads (default: 5)')
 
-    args = parser.parse_args()
+        args = parser.parse_args()
 
-    scanner = WebScanner(args.url, args.wordlist, args.webhook, args.max_retry, args.thread)
-    asyncio.run(scanner.scan())
+        scanner = WebScanner(args.url, args.wordlist, args.webhook, args.max_retry, args.thread)
+        asyncio.run(scanner.scan())
+    except Exception as e:
+        print(f"Error in main: {e}")
 
 if __name__ == "__main__":
     main()
